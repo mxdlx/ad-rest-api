@@ -3,20 +3,62 @@ from ldap.controls import SimplePagedResultsControl
 import ldap
 import os
 import ast
+import ConfigParser
 
 app = Flask(__name__)
 
-LDAPSERVER = unicode(os.getenv('LDAP_SERVER', ''))
-LDAPUSER = unicode(os.getenv('LDAP_USER', ''))
-LDAPPASS = unicode(os.getenv('LDAP_PASSWORD', ''))
-PAGESIZE = int(os.getenv('LDAP_PAGE_SIZE', '1000'))
+# Configuration variables
+LDAPSERVER = ''
+LDAPUSER = ''
+LDAPPASS = ''
+PAGESIZE = 1000
+BASEDN = ''
+USER_ATTR_LIST = []
+USERS_ATTR_LIST = []
+SEARCHFILTER = ""
 
-# Attribute list as environment variable ~ this is lazy ~
-ATTRLIST = [ unicode(x) for x in ast.literal_eval(os.getenv('LDAP_ATTRIBUTE_LIST', '')) ]
-
-BASEDN = unicode(os.getenv('LDAP_BASE_DN', ''))
-SEARCHFILTER = unicode(os.getenv('LDAP_SEARCH_FILTER', '(sAMAccountName=*)'))
-
+# Configuration from INI file
+def set_config_from_file():
+  global LDAPSERVER, LDAPUSER, LDAPPASS, PAGESIZE, BASEDN, USER_ATTR_LIST, USERS_ATTR_LIST, SEARCHFILTER
+  if len(USER_ATTR_LIST) > 0:
+    USER_ATTR_LIST[:] = []
+  if len(USERS_ATTR_LIST) > 0:
+    USERS_ATTR_LIST[:] = []
+  if os.path.isfile(os.getcwd() + '/' + 'service.conf'):
+    config = ConfigParser.ConfigParser()
+    config.read('service.conf')
+    LDAPSERVER = unicode(config.get('connection', 'ldap_server'))
+    LDAPUSER = unicode(config.get('connection', 'ldap_user'))
+    LDAPPASS = unicode(config.get('connection', 'ldap_password'))
+    PAGESIZE = config.getint('connection', 'ldap_page_size')
+    BASEDN = unicode(config.get('connection', 'base_dn'))
+    USER_ATTR_LIST.extend([ unicode(x) for x in ast.literal_eval(config.get('user', 'attributes')) ])
+    USERS_ATTR_LIST.extend([ unicode(x) for x in ast.literal_eval(config.get('users', 'attributes')) ])
+    SEARCHFILTER = config.get('users', 'ldap_search_filter')
+  
+# Environment variables override file
+def set_config_from_env():
+  global LDAPSERVER, LDAPUSER, LDAPPASS, PAGESIZE, BASEDN, USER_ATTR_LIST, USERS_ATTR_LIST, SEARCHFILTER
+  if os.getenv('LDAP_SERVER'):
+    LDAPSERVER = unicode(os.getenv('LDAP_SERVER'))
+  if os.getenv('LDAP_USER'):
+    LDAPUSER = unicode(os.getenv('LDAP_USER'))
+  if os.getenv('LDAP_PASSWORD'):
+    LDAPPASS = unicode(os.getenv('LDAP_PASSWORD'))
+  if os.getenv('LDAP_PAGE_SIZE'):
+    PAGESIZE = int(os.getenv('LDAP_PAGE_SIZE'))
+  if os.getenv('LDAP_BASE_DN'):
+    BASEDN = unicode(os.getenv('LDAP_BASE_DN'))
+  if os.getenv('USER_ATTR_LIST'):
+    if len(USER_ATTR_LIST) > 0:
+      USER_ATTR_LIST[:] = []
+      USER_ATTR_LIST.extend([ unicode(x) for x in ast.literal_eval(os.getenv('USER_ATTR_LIST')) ])
+  if os.getenv('USERS_ATTR_LIST'):
+    if len(USERS_ATTR_LIST):
+      USERS_ATTR_LIST[:] = []
+      USERS_ATTR_LIST.extend([ unicode(x) for x in ast.literal_eval(os.getenv('USERS_ATTR_LIST')) ])
+  if os.getenv('LDAP_SEARCH_FILTER'):
+    SEARCHFILTER = os.getenv('LDAP_SEARCH_FILTER')
 
 def get_ldap_con():
   try:
@@ -41,9 +83,7 @@ def get_response_template():
 
 def search_user(username):
   con = get_ldap_con()
-  extra_attrs = [u'cn', u'description', u'mail']
-  SINGLE_ATTRLIST = ATTRLIST + extra_attrs
-  msgid = con.search_ext(base=BASEDN, scope=ldap.SCOPE_SUBTREE, filterstr='(sAMAccountName=' + username + ')', attrlist=SINGLE_ATTRLIST)
+  msgid = con.search_ext(base=BASEDN, scope=ldap.SCOPE_SUBTREE, filterstr='(sAMAccountName=' + username + ')', attrlist=USER_ATTR_LIST)
 
   _, result_tuple = con.result(msgid=msgid)
 
@@ -68,14 +108,14 @@ def search_users(req_page):
   while True:
     if i >= req_page:
       break
-
-    msgid = con.search_ext(base=BASEDN, scope=ldap.SCOPE_SUBTREE, filterstr=SEARCHFILTER, attrlist=ATTRLIST, serverctrls=[sc])
+    
+    msgid = con.search_ext(base=BASEDN, scope=ldap.SCOPE_SUBTREE, filterstr=SEARCHFILTER.decode('utf8'), attrlist=USERS_ATTR_LIST, serverctrls=[sc])
     # msgid is an integer representing LDAP operation id
 
     _, search_results, _, result_sc = con.result3(msgid)
 
     # result_data: list of tuples in the form of (dn, attrs),
-    # dn is a string, ie: 'dn=alvaro,ou=cac,dc=cnea,dc=ar',
+    # dn is a string, ie: 'dn=alvaro,dc=example,dc=com',
     # attrs is a string key based dictionary.
     # result_sc: servercontrols list.
 
@@ -107,6 +147,8 @@ def search_users(req_page):
 
 @app.route("/users", methods=['GET'])
 def getUsuarios():
+  set_config_from_file()
+  set_config_from_env()
   if not request.args.get('p'):
     return redirect("/users?p=1")
   else:
@@ -114,6 +156,8 @@ def getUsuarios():
 
 @app.route("/users/<username>", methods=['GET'])
 def getUsuario(username):
+  set_config_from_file()
+  set_config_from_env()
   return jsonify(search_user(username))
 
 if __name__ == '__main__':
