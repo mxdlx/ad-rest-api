@@ -35,7 +35,7 @@ def set_config_from_file():
     USER_ATTR_LIST.extend([ unicode(x) for x in ast.literal_eval(config.get('user', 'attributes')) ])
     USERS_ATTR_LIST.extend([ unicode(x) for x in ast.literal_eval(config.get('users', 'attributes')) ])
     SEARCHFILTER = config.get('users', 'ldap_search_filter')
-  
+
 # Environment variables override file
 def set_config_from_env():
   global LDAPSERVER, LDAPUSER, LDAPPASS, PAGESIZE, BASEDN, USER_ATTR_LIST, USERS_ATTR_LIST, SEARCHFILTER
@@ -108,7 +108,7 @@ def search_users(req_page):
   while True:
     if i >= req_page:
       break
-    
+
     msgid = con.search_ext(base=BASEDN, scope=ldap.SCOPE_SUBTREE, filterstr=SEARCHFILTER.decode('utf8'), attrlist=USERS_ATTR_LIST, serverctrls=[sc])
     # msgid is an integer representing LDAP operation id
 
